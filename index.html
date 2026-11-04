@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>憶尋 收藏地圖</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root{
+    --ink:#1E1E1E; --muted:#6B6B6B; --line:#E6E6E6; --bg:#FFFFFF; --soft:#F3F6FA; --accent:#2E5C8A;
+    --meme:#F2A95A; --learn:#2E5C8A; --life:#8FC4A8; --other:#B9B3C9; --grey:#E6E6E6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:520px;margin:0 auto;padding:16px 16px 40px}
+  h1{margin:0;font-size:22px}
+  .sub{margin:4px 0 0;font-size:13px;color:var(--muted)}
+  .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .seg{display:flex;background:#F0F0F0;border-radius:10px;padding:3px;margin-top:14px}
+  .seg button{flex:1;border:0;background:transparent;color:var(--muted);font:inherit;font-size:14px;padding:8px 0;border-radius:8px}
+  .seg button[aria-pressed="true"]{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .stats{display:flex;gap:8px;margin-top:12px}
+  .stat{flex:1;background:var(--soft);border-radius:10px;padding:10px 12px}
+  .stat b{display:block;font-size:20px}
+  .stat span{font-size:12px;color:var(--muted)}
+  #map{position:relative;width:100%;height:420px;margin-top:12px}
+  .cell{position:absolute;border-radius:10px;padding:8px;overflow:hidden;cursor:pointer;border:0;text-align:left;font:inherit;color:var(--ink);display:flex;flex-direction:column;justify-content:flex-end;transition:transform .1s}
+  .cell:active{transform:scale(.98)}
+  .cell .nm{font-weight:700;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cell .ct{font-size:11px;opacity:.85}
+  .cell.unread{border:1px dashed #9A9A9A;background:var(--grey)!important;color:#5A5A5A}
+  .biglabel{position:absolute;font-size:12px;font-weight:700;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.85);pointer-events:none}
+  .legend{font-size:12px;color:var(--muted);margin-top:8px}
+  .bot{display:flex;gap:10px;margin-top:16px;align-items:flex-start}
+  .avatar{flex:0 0 32px;height:32px;border-radius:16px;background:var(--accent);display:flex;align-items:center;justify-content:center}
+  .bubble{background:var(--soft);border-radius:4px 14px 14px 14px;padding:12px 14px;font-size:14px;line-height:1.5}
+  .empty{padding:40px 16px;text-align:center;color:var(--muted);font-size:14px}
+  /* 底部清單 */
+  .sheet{position:fixed;left:0;right:0;bottom:0;max-height:80vh;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -4px 24px rgba(0,0,0,.18);transform:translateY(105%);transition:transform .22s;display:flex;flex-direction:column;z-index:10}
+  .sheet.open{transform:none}
+  .sheet header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px 8px}
+  .sheet header h2{margin:0;font-size:16px}
+  .sheet header button{border:0;background:#F0F0F0;border-radius:16px;width:32px;height:32px;font-size:16px}
+  .list{overflow:auto;padding:0 16px 24px}
+  .item{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+  .thumb{flex:0 0 56px;height:56px;border-radius:8px;background:#EEE;object-fit:cover}
+  .item .t{font-size:14px;font-weight:700;line-height:1.3}
+  .item .m{font-size:12px;color:var(--muted);margin-top:2px}
+  .item .acts{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+  .item .acts button, .item .acts a{border:1px solid #C9C9C9;background:#fff;color:#333;font:inherit;font-size:12px;padding:5px 10px;border-radius:14px;text-decoration:none}
+  .item .acts .pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:4px;background:#E08A3C;margin-right:4px;vertical-align:middle}
+  .recat{display:none;gap:6px;margin-top:6px;flex-wrap:wrap}
+  .recat select,.recat input{font:inherit;font-size:13px;padding:5px 8px;border:1px solid #C9C9C9;border-radius:8px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1E1E1E;color:#fff;padding:10px 16px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>我的收藏地圖</h1>
+    <span class="sub" id="who">載入中…</span>
+  </div>
+  <p class="sub">格子越大＝存越多；灰色＝存了還沒看</p>
+
+  <div class="seg" role="group" aria-label="時間範圍">
+    <button data-range="7" aria-pressed="false">一週</button>
+    <button data-range="30" aria-pressed="true">一個月</button>
+    <button data-range="365" aria-pressed="false">一年</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="sTotal">–</b><span>筆收藏</span></div>
+    <div class="stat"><b id="sUnread">–</b><span>筆還沒看</span></div>
+    <div class="stat"><b id="sTop">–</b><span>存最多</span></div>
+  </div>
+
+  <div id="map"></div>
+  <div class="legend">點格子看裡面的收藏</div>
+
+  <div class="bot">
+    <div class="avatar" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 13c1 1.5 2.5 2 4 2s3-.5 4-2"/><circle cx="9" cy="10" r="1" fill="#fff"/><circle cx="15" cy="10" r="1" fill="#fff"/></svg>
+    </div>
+    <div class="bubble" id="sentence">…</div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" aria-hidden="true">
+  <header><h2 id="sheetTitle">分類</h2><button id="closeSheet" aria-label="關閉">✕</button></header>
+  <div class="list" id="list"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ====== 只要改這兩行 ====== */
+const LIFF_ID = '請填你的 LIFF ID';                 // 例：2001234567-AbCdEfGh
+const API_URL = 'https://script.google.com/macros/s/AKfycbx6ShnKjVGVkYjHSdaQztYycI9AqlDNifgE3UdUo-DDBYtWS3GK2bZKwxMXfOnKH8vMPA/exec';         // 例：https://script.google.com/macros/s/AKfy.../exec
+/* ========================= */
+
+const BIG_COLOR = { '梗圖': 'var(--meme)', '學習': 'var(--learn)', '生活知識': 'var(--life)', '其他': 'var(--other)' };
+const BIG_TEXT = { '梗圖': '#3A2308', '學習': '#FFFFFF', '生活知識': '#12301F', '其他': '#2A2435' };
+let ALL = [], BIGS = ['梗圖', '學習', '生活知識', '其他'], RANGE = 30, USER = null;
+
+const $ = s => document.querySelector(s);
+const toast = m => { const t = $('#toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1800); };
+
+async function main() {
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('userId')) {                       // 測試用：?userId=xxx 直接看，不經過 LINE
+    USER = { userId: qs.get('userId'), displayName: '測試' };
+  } else if (qs.get('demo')) {                  // 展示用假資料
+    USER = { userId: 'demo', displayName: '示範' };
+  } else {
+    try {
+      await liff.init({ liffId: LIFF_ID });
+      if (!liff.isLoggedIn()) { liff.login(); return; }
+      USER = await liff.getProfile();
+    } catch (e) {
+      $('#who').textContent = 'LIFF 初始化失敗：' + e.message;
+      return;
+    }
+  }
+  $('#who').textContent = USER.displayName || '';
+  await load();
+}
+
+async function load() {
+  if (USER.userId === 'demo') { applyData(demoData()); return; }
+  try {
+    const r = await fetch(`${API_URL}?action=data&userId=${encodeURIComponent(USER.userId)}`);
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || '後端回傳錯誤');
+    applyData(d);
+  } catch (e) {
+    $('#sentence').textContent = '拿不到資料：' + e.message + '。請確認 API_URL 有填對、Apps Script 有發布成「所有人」。';
+  }
+}
+
+function applyData(d) {
+  ALL = d.items.map(it => ({ ...it, savedAt: new Date(it.savedAt), openedAt: it.openedAt ? new Date(it.openedAt) : null }));
+  BIGS = d.bigCats || BIGS;
+  render();
+}
+
+function inRange() {
+  const since = Date.now() - RANGE * 86400000;
+  return ALL.filter(it => it.savedAt.getTime() >= since);
+}
+
+function render() {
+  const items = inRange();
+  const unread = items.filter(it => !it.openedAt);
+  $('#sTotal').textContent = items.length;
+  $('#sUnread').textContent = unread.length;
+
+  // 分組：大區 → 小區
+  const tree = {};
+  items.forEach(it => {
+    tree[it.big] = tree[it.big] || {};
+    tree[it.big][it.small] = tree[it.big][it.small] || [];
+    tree[it.big][it.small].push(it);
+  });
+  const bigs = Object.keys(tree).map(b => ({ name: b, n: Object.values(tree[b]).reduce((a, l) => a + l.length, 0),
+    kids: Object.keys(tree[b]).map(s => ({ name: s, n: tree[b][s].length, items: tree[b][s] })).sort((a, b2) => b2.n - a.n) }))
+    .sort((a, b) => b.n - a.n);
+  $('#sTop').textContent = bigs.length ? bigs[0].name : '–';
+
+  const map = $('#map');
+  map.innerHTML = '';
+  if (!items.length) { map.innerHTML = '<div class="empty">這段時間還沒有收藏。<br>在 LINE 分享連結給憶尋，格子就會長出來。</div>'; $('#sentence').textContent = sentence(items); return; }
+
+  const W = map.clientWidth, H = map.clientHeight, GAP = 6;
+  const rects = squarify(bigs.map(b => b.n), 0, 0, W, H);
+  bigs.forEach((b, i) => {
+    const r = rects[i];
+    const label = document.createElement('div');
+    label.className = 'biglabel';
+    label.style.left = (r.x + 6) + 'px'; label.style.top = (r.y + 6) + 'px';
+    label.textContent = `${b.name} ${b.n}`;
+    // 小區
+    const HEAD = 24;   // 大區標籤的高度，小格子從它下面開始排
+    const inner = squarify(b.kids.map(k => k.n), r.x + GAP / 2, r.y + HEAD, r.w - GAP, r.h - HEAD - GAP / 2);
+    b.kids.forEach((k, j) => {
+      const q = inner[j];
+      const opened = k.items.filter(it => it.openedAt).length;
+      const cell = document.createElement('button');
+      cell.className = 'cell' + (opened === 0 ? ' unread' : '');
+      cell.style.left = (q.x + GAP / 2) + 'px'; cell.style.top = (q.y + GAP / 2) + 'px';
+      cell.style.width = Math.max(q.w - GAP, 8) + 'px'; cell.style.height = Math.max(q.h - GAP, 8) + 'px';
+      cell.style.background = BIG_COLOR[b.name] || 'var(--other)';
+      cell.style.color = BIG_TEXT[b.name] || '#1E1E1E';
+      if (opened > 0 && opened < k.n) cell.style.opacity = String(0.55 + 0.45 * opened / k.n);
+      const tiny = q.w < 48 || q.h < 34;
+      const small = q.w < 80 || q.h < 50;
+      cell.innerHTML = tiny ? '' : `<span class="nm">${esc(k.name)}</span>` + (small ? '' : `<span class="ct">${k.n} 筆 · 看過 ${opened}</span>`);
+      cell.title = `${b.name} › ${k.name}`;
+      cell.addEventListener('click', () => openSheet(b.name, k));
+      map.appendChild(cell);
+    });
+    map.appendChild(label);
+  });
+  $('#sentence').textContent = sentence(items);
+}
+
+// 那一句話（跟 LINE 端同一套規則）
+function sentence(items) {
+  const label = RANGE === 7 ? '這一週' : RANGE === 30 ? '這 30 天' : '這一年';
+  if (!items.length) return `${label}還沒有收藏。看到好東西，在 LINE 分享給我試試。`;
+  const byBig = {};
+  items.forEach(it => { byBig[it.big] = (byBig[it.big] || 0) + 1; });
+  const top = Object.keys(byBig).sort((a, b) => byBig[b] - byBig[a])[0];
+  const share = Math.round(byBig[top] / items.length * 10);
+  let unread = items.filter(it => it.big === '學習' && !it.openedAt), where = '學習區';
+  if (!unread.length) { unread = items.filter(it => !it.openedAt); where = '收藏裡'; }
+  if (!unread.length) return `${label}存了 ${items.length} 筆，全部都看過了，很可以。`;
+  const pick = unread.sort((a, b) => a.savedAt - b.savedAt)[0];
+  return `${label}${top}佔 ${share} 成，${where}有 ${unread.length} 篇存了還沒打開。要不要先看〈${pick.title}〉？`;
+}
+
+// ====== 底部清單 ======
+function openSheet(big, k) {
+  $('#sheetTitle').textContent = `${big} › ${k.name}（${k.n}）`;
+  const list = $('#list');
+  list.innerHTML = '';
+  k.items.slice().sort((a, b) => b.savedAt - a.savedAt).forEach(it => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = `
+      ${it.image ? `<img class="thumb" src="${esc(it.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}
+      <div style="flex:1;min-width:0">
+        <div class="t">${it.openedAt ? '' : '<span class="dot" title="還沒看"></span>'}${esc(it.title || '（沒有標題）')}</div>
+        <div class="m">${esc(it.platform)} · ${fmt(it.savedAt)}${it.openedAt ? ' · 看過' : ''}</div>
+        <div class="acts">
+          <a class="pri" href="${esc(it.url)}" target="_blank" rel="noopener">開原文</a>
+          <button type="button" class="recatBtn">改分類</button>
+        </div>
+        <div class="recat">
+          <select class="bigSel">${BIGS.map(b => `<option ${b === big ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>
+          <input class="smallIn" value="${esc(k.name)}" placeholder="小區名稱" aria-label="小區名稱">
+          <button type="button" class="saveBtn">存</button>
+        </div>
+      </div>`;
+    el.querySelector('.pri').addEventListener('click', () => markOpened(it));
+    el.querySelector('.recatBtn').addEventListener('click', () => { const r = el.querySelector('.recat'); r.style.display = r.style.display === 'flex' ? 'none' : 'flex'; });
+    el.querySelector('.saveBtn').addEventListener('click', () => recat(it, el.querySelector('.bigSel').value, el.querySelector('.smallIn').value.trim()));
+    list.appendChild(el);
+  });
+  $('#sheet').classList.add('open');
+  $('#sheet').setAttribute('aria-hidden', 'false');
+}
+$('#closeSheet').addEventListener('click', () => { $('#sheet').classList.remove('open'); $('#sheet').setAttribute('aria-hidden', 'true'); });
+
+async function markOpened(it) {
+  if (it.openedAt) return;
+  it.openedAt = new Date();
+  if (USER.userId !== 'demo') fetch(`${API_URL}?action=open&id=${it.id}&userId=${encodeURIComponent(USER.userId)}`).catch(() => {});
+  render();
+}
+
+async function recat(it, big, small) {
+  if (!small) { toast('小區名稱不能空白'); return; }
+  it.big = big; it.small = small;
+  if (USER.userId !== 'demo') {
+    try {
+      const r = await fetch(`${API_URL}?action=recat&id=${it.id}&big=${encodeURIComponent(big)}&small=${encodeURIComponent(small)}&userId=${encodeURIComponent(USER.userId)}`);
+      const d = await r.json(); if (!d.ok) throw new Error(d.error);
+    } catch (e) { toast('存失敗：' + e.message); return; }
+  }
+  toast('改好了');
+  $('#closeSheet').click();
+  render();
+}
+
+// ====== 時間切換 ======
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', 'false'));
+  b.setAttribute('aria-pressed', 'true');
+  RANGE = Number(b.dataset.range);
+  render();
+}));
+window.addEventListener('resize', () => ALL.length && render());
+
+// ====== 格子地圖演算法（squarified treemap，簡化版） ======
+function squarify(values, x, y, w, h) {
+  const total = values.reduce((a, b) => a + b, 0) || 1;
+  const out = [];
+  let idx = 0, X = x, Y = y, Wd = w, Ht = h;
+  let remaining = values.map(v => v / total * w * h);
+  while (remaining.length) {
+    const vertical = Wd >= Ht;          // 寬的話就切成直條
+    const side = vertical ? Ht : Wd;
+    let row = [], best = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const cand = row.concat(remaining[i]);
+      const s = cand.reduce((a, b) => a + b, 0);
+      const len = s / side;
+      const worst = Math.max(...cand.map(a => { const cellLen = a / len; return Math.max(len / cellLen, cellLen / len); }));
+      if (worst <= best) { row = cand; best = worst; } else break;
+    }
+    const s = row.reduce((a, b) => a + b, 0);
+    const len = s / side;
+    let off = 0;
+    row.forEach(a => {
+      const cellLen = a / len;
+      out.push(vertical ? { x: X, y: Y + off, w: len, h: cellLen } : { x: X + off, y: Y, w: cellLen, h: len });
+      off += cellLen;
+    });
+    if (vertical) { X += len; Wd -= len; } else { Y += len; Ht -= len; }
+    remaining = remaining.slice(row.length);
+    idx += row.length;
+  }
+  return out;
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function fmt(d) { return `${d.getMonth() + 1}/${d.getDate()}`; }
+
+// 展示用假資料（網址後面加 ?demo=1 就會看到）
+function demoData() {
+  const day = n => new Date(Date.now() - n * 86400000).toISOString();
+  const mk = (i, big, small, title, daysAgo, opened) => ({ id: 'd' + i, url: 'https://example.com/' + i, title, image: '', platform: 'Instagram', big, small, savedAt: day(daysAgo), openedAt: opened ? day(daysAgo - 1) : null, status: 'ok' });
+  const items = [];
+  for (let i = 0; i < 22; i++) items.push(mk(items.length, '梗圖', '海綿寶寶', '派大星名場面 ' + (i + 1), 2 + i, i < 20));
+  for (let i = 0; i < 13; i++) items.push(mk(items.length, '梗圖', '甄嬛傳', '臣妾做不到 ' + (i + 1), 1 + i, i < 9));
+  for (let i = 0; i < 5; i++) items.push(mk(items.length, '梗圖', '其他梗', '隨手存的梗 ' + (i + 1), 3 + i, true));
+  items.push(mk(items.length, '學習', '教室佈置', '把教室變成森林角落', 12, true));
+  items.push(mk(items.length, '學習', '教室佈置', '低成本布告欄設計', 20, true));
+  items.push(mk(items.length, '學習', 'AI 教學', '用 AI 出探究學習單', 8, false));
+  items.push(mk(items.length, '學習', '班級經營', '開學第一週怎麼帶', 25, false));
+  items.push(mk(items.length, '學習', '探究課程', '校園植物探究活動', 15, false));
+  for (let i = 0; i < 12; i++) items.push(mk(items.length, '生活知識', ['料理', '整理', '報稅'][i % 3], '生活小技巧 ' + (i + 1), 4 + i * 2, i < 9));
+  return { ok: true, bigCats: ['梗圖', '學習', '生活知識', '其他'], items, sentence: '' };
+}
+
+main();
+</script>
+</body>
+</html>
