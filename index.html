@@ -77,7 +77,17 @@
   </div>
 
   <div id="map"></div>
-  <div class="legend">點格子看裡面的收藏</div>
+  <div class="legend" style="display:flex;justify-content:space-between;align-items:center">
+    <span>點格子看裡面的收藏</span>
+    <button id="exportBtn" type="button" style="border:1px solid #C9C9C9;background:#fff;color:#333;font:inherit;font-size:12px;padding:5px 10px;border-radius:14px">匯出 CSV</button>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+    <label for="ask" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">想找什麼</label>
+    <input id="ask" type="text" placeholder="想找什麼？用口語描述也可以" style="flex:1 1 0;height:44px;border:1px solid #D5D5D5;border-radius:22px;padding:0 16px;font-size:14px;font-family:inherit;color:#1E1E1E;background:#fff">
+    <button id="askBtn" type="button" aria-label="搜尋" style="flex:0 0 44px;height:44px;border:0;border-radius:22px;background:#1E1E1E;display:flex;align-items:center;justify-content:center">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    </button>
+  </div>
 
   <div class="bot">
     <div class="avatar" aria-hidden="true">
@@ -95,8 +105,8 @@
 
 <script>
 /* ====== 只要改這兩行 ====== */
-const LIFF_ID = '2012381635-dXfpUtjN';                 // 例：2001234567-AbCdEfGh
-const API_URL = 'https://script.google.com/macros/s/AKfycbx6ShnKjVGVkYjHSdaQztYycI9AqlDNifgE3UdUo-DDBYtWS3GK2bZKwxMXfOnKH8vMPA/exec';         // 例：https://script.google.com/macros/s/AKfy.../exec
+const LIFF_ID = '請填你的 LIFF ID';                 // 例：2001234567-AbCdEfGh
+const API_URL = '請填你的 Apps Script 網址';         // 例：https://script.google.com/macros/s/AKfy.../exec
 /* ========================= */
 
 const BIG_COLOR = { '梗圖': 'var(--meme)', '學習': 'var(--learn)', '生活知識': 'var(--life)', '其他': 'var(--other)' };
@@ -231,7 +241,8 @@ function openSheet(big, k) {
       ${it.image ? `<img class="thumb" src="${esc(it.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}
       <div style="flex:1;min-width:0">
         <div class="t">${it.openedAt ? '' : '<span class="dot" title="還沒看"></span>'}${esc(it.title || '（沒有標題）')}</div>
-        <div class="m">${esc(it.platform)} · ${fmt(it.savedAt)}${it.openedAt ? ' · 看過' : ''}</div>
+        ${it.summary ? `<div class="m" style="color:#333;margin-top:3px">${esc(it.summary)}</div>` : ''}
+        <div class="m">${esc(it.platform)} · ${fmt(it.savedAt)}${it.openedAt ? ' · 看過' : ''}${it.note ? ' · ' + esc(it.note) : ''}</div>
         <div class="acts">
           <a class="pri" href="${esc(it.url)}" target="_blank" rel="noopener">開原文</a>
           <button type="button" class="recatBtn">改分類</button>
@@ -272,6 +283,40 @@ async function recat(it, big, small) {
   $('#closeSheet').click();
   render();
 }
+
+// ====== 搜尋（口語也可以：先關鍵字，再問後端用 AI 比對） ======
+async function search() {
+  const q = $('#ask').value.trim();
+  if (!q) return;
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  let hits = ALL.filter(it => { const hay = (it.title + ' ' + it.big + ' ' + it.small + ' ' + (it.note || '') + ' ' + (it.summary || '')).toLowerCase(); return words.some(w => hay.includes(w)); });
+  if (!hits.length && USER.userId !== 'demo') {
+    toast('關鍵字沒中，請 AI 想一下…');
+    try {
+      const r = await fetch(`${API_URL}?action=find&userId=${encodeURIComponent(USER.userId)}&q=${encodeURIComponent(q)}`);
+      const d = await r.json();
+      if (d.ok) hits = d.ids.map(id => ALL.find(it => it.id === id)).filter(Boolean);
+    } catch (e) { /* 失敗就當沒找到 */ }
+  }
+  if (!hits.length) { toast('沒找到，換個說法試試'); return; }
+  openSheet('搜尋', { name: q, n: hits.length, items: hits });
+}
+$('#askBtn').addEventListener('click', search);
+$('#ask').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+
+// ====== 匯出 CSV（目前時間範圍） ======
+$('#exportBtn').addEventListener('click', () => {
+  const items = inRange();
+  if (!items.length) { toast('這段時間沒有收藏'); return; }
+  const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const rows = [['標題', '大區', '小區', '平台', '存入時間', '打開時間', '備註', '網址']]
+    .concat(items.map(it => [it.title, it.big, it.small, it.platform, it.savedAt.toISOString().slice(0, 10), it.openedAt ? it.openedAt.toISOString().slice(0, 10) : '', it.note || '', it.url]));
+  const csv = '﻿' + rows.map(r => r.map(esc).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `憶尋收藏_${RANGE}天.csv`;
+  a.click();
+});
 
 // ====== 時間切換 ======
 document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
